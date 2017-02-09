@@ -21,7 +21,6 @@ Promise.promisifyAll(Datastore.prototype);
 const debug = Debug('weixinbot');
 
 let URLS = getUrls({});
-const logo = fs.readFileSync(path.join(__dirname, '..', 'logo.txt'), 'utf8');
 
 // try persistent cookie
 const cookiePath = path.join(process.cwd(), '.cookie.json');
@@ -54,8 +53,6 @@ class WeixinBot extends EventEmitter {
     super();
 
     Object.assign(this, CODES);
-
-    debug(logo);
   }
 
   qrcodeUrl(uuid) {
