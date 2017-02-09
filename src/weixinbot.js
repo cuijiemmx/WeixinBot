@@ -129,13 +129,20 @@ class WeixinBot extends EventEmitter {
 
     // limit check times
     this.checkTimes = 0;
+
+    let tip = 1;
     while (true) {
-      const loginCode = await this.checkLoginStep();
-      if (loginCode === 200) break;
+      const loginCode = await this.checkLoginStep(tip);
+      if (loginCode === 200)
+      	break;
 
-      if (loginCode !== 201) this.checkTimes += 1;
+      if (loginCode === 201) {
+      	tip = 0;
+      } else {
+      	this.checkTimes += 1;
+      }
 
-      if (this.checkTimes > 6) {
+      if (this.checkTimes > 10) {
         debug('检查登录状态次数超出限制，重新获取二维码');
         this.init();
         return;
@@ -222,20 +229,20 @@ class WeixinBot extends EventEmitter {
     return uuid;
   }
 
-  async checkLoginStep() {
+  async checkLoginStep(tip) {
     let result;
 
     try {
       result = await req.get(URLS.API_login, {
         params: {
-          tip: 1,
+          tip: tip,
           uuid: this.uuid,
           _: +new Date,
         },
       });
     } catch (e) {
       debug('checkLoginStep network error', e);
-      await this.checkLoginStep();
+      await this.checkLoginStep(tip);
       return;
     }
 
@@ -243,7 +250,7 @@ class WeixinBot extends EventEmitter {
 
     if (!/code=(\d{3});/.test(data)) {
       // retry
-      return await this.checkLoginStep();
+      return await this.checkLoginStep(tip);
     }
 
     const loginCode = parseInt(data.match(/code=(\d{3});/)[1], 10);
