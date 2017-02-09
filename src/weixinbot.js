@@ -50,7 +50,7 @@ const secretPath = path.join(process.cwd(), '.secret.json');
 const makeDeviceID = () => 'e' + Math.random().toFixed(15).toString().substring(2, 17);
 
 class WeixinBot extends EventEmitter {
-  constructor(options = {}) {
+  constructor() {
     super();
 
     Object.assign(this, CODES);
