@@ -58,6 +58,14 @@ class WeixinBot extends EventEmitter {
     debug(logo);
   }
 
+  qrcodeUrl(uuid) {
+  	return URLS.QRCODE_PATH + uuid;
+  }
+
+  qrcode(uuid) {
+  	return this.qrcodeUrl(uuid).replace('/qrcode/', '/l/');
+  }
+
   async run() {
     if (fs.existsSync(secretPath)) {
       this.initConfig();
@@ -122,10 +130,7 @@ class WeixinBot extends EventEmitter {
     }
 
     debug(`获得 uuid -> ${this.uuid}`);
-
-    const qrcodeUrl = URLS.QRCODE_PATH + this.uuid;
-    debug('二维码链接：' + qrcodeUrl);
-    this.emit('qrcode', qrcodeUrl.replace('/qrcode/', '/l/'));
+    this.emit('uuid', this.uuid);
 
     // limit check times
     this.checkTimes = 0;

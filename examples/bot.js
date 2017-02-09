@@ -6,7 +6,8 @@ const Weixinbot = require('../src/weixinbot');
 
 const bot = new Weixinbot();
 
-bot.on('qrcode', (qr) => {
+bot.on('uuid', (uuid) => {
+	const qr = bot.qrcode(uuid);
 	qrcode.generate(qr);
 });
 
