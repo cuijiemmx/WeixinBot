@@ -1,8 +1,6 @@
 /* eslint-disable quote-props,no-constant-condition,
   prefer-template,consistent-return,new-cap,no-param-reassign */
-import fs from 'fs';
 import url from 'url';
-import path from 'path';
 import http from 'http';
 import https from 'https';
 import axios from 'axios';
@@ -24,8 +22,6 @@ const debug = Debug('weixinbot');
 
 let URLS = getUrls({});
 
-const secretPath = path.join(process.cwd(), '.secret.json');
-
 class WeixinBot extends EventEmitter {
   constructor() {
     super();
@@ -42,14 +38,7 @@ class WeixinBot extends EventEmitter {
   }
 
   async run() {
-    if (fs.existsSync(secretPath)) {
-      this.initConfig();
-      const secret = JSON.parse(fs.readFileSync(secretPath, 'utf8'));
-      Object.assign(this, secret);
-      this.runLoop();
-    } else {
-      this.init();
-    }
+    this.init();
   }
 
   initConfig() {
@@ -294,7 +283,7 @@ class WeixinBot extends EventEmitter {
     let jData;
     try {
     	jData = await parseString(data, {explicitArray: false});
-    	if (+jData['Error']['ret'] !== 0) {
+    	if (+jData['error']['ret'] !== 0) {
     		throw new Error();
     	}
     } catch (e) {
@@ -319,15 +308,6 @@ class WeixinBot extends EventEmitter {
       Skey: this.skey,
       DeviceID: this.deviceid,
     };
-
-    fs.writeFileSync(secretPath, JSON.stringify({
-      skey: this.skey,
-      sid: this.sid,
-      uin: this.uin,
-      passTicket: this.passTicket,
-      baseHost: this.baseHost,
-      baseRequest: this.baseRequest,
-    }), 'utf8');
   }
 
   async webwxinit() {
