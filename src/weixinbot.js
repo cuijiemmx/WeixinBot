@@ -12,8 +12,6 @@ import tough from 'tough-cookie';
 import Datastore from 'nedb';
 import Promise from 'bluebird';
 import EventEmitter from 'events';
-import nodemailer from 'nodemailer';
-import qrcode from 'qrcode-terminal';
 import FileCookieStore from 'tough-cookie-filestore';
 import axiosCookieJarSupport from 'node-axios-cookiejar';
 
@@ -54,19 +52,6 @@ const makeDeviceID = () => 'e' + Math.random().toFixed(15).toString().substring(
 class WeixinBot extends EventEmitter {
   constructor(options = {}) {
     super();
-
-    // transporter for send qrcode image url
-    // 请不要依赖这个默认提供的邮件账户！。
-    this.transporter = nodemailer.createTransport(options.mailOpts || {
-      service: 'QQex',
-      auth: {
-        user: 'weixinbot@javascript.work',
-        pass: 'V0an1KqPdz4ZKNuP',
-      },
-    });
-
-    // email address for get qrcode image url
-    this.receiver = options.receiver || '';
 
     Object.assign(this, CODES);
 
@@ -139,21 +124,8 @@ class WeixinBot extends EventEmitter {
     debug(`获得 uuid -> ${this.uuid}`);
 
     const qrcodeUrl = URLS.QRCODE_PATH + this.uuid;
-    this.emit('qrcode', qrcodeUrl);
-
-    if (this.receiver) {
-      debug(`发送二维码图片到邮箱 ${this.receiver}`);
-      this.transporter.sendMail({
-        from: `WeixinBot <${this.transporter.transporter.options.auth.user}>`,
-        to: this.receiver,
-        subject: 'WeixinBot 请求登录',
-        html: `<img src="${qrcodeUrl}" height="256" width="256" />`,
-      }, (e) => {
-        if (e) debug(`发送二维码图片到邮箱 ${this.receiver} 失败`, e);
-      });
-    } else {
-      qrcode.generate(qrcodeUrl.replace('/qrcode/', '/l/'));
-    }
+    debug('二维码链接：' + qrcodeUrl);
+    this.emit('qrcode', qrcodeUrl.replace('/qrcode/', '/l/'));
 
     // limit check times
     this.checkTimes = 0;
