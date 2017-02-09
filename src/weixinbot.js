@@ -12,41 +12,19 @@ import tough from 'tough-cookie';
 import Datastore from 'nedb';
 import Promise from 'bluebird';
 import EventEmitter from 'events';
-import FileCookieStore from 'tough-cookie-filestore';
 import axiosCookieJarSupport from 'node-axios-cookiejar';
+import xml2js from 'xml2js';
+import utils from './utils';
 
 import { getUrls, CODES, SP_ACCOUNTS, PUSH_HOST_LIST } from './conf';
 
 Promise.promisifyAll(Datastore.prototype);
+const parseString = Promise.promisify(xml2js.parseString);
 const debug = Debug('weixinbot');
 
 let URLS = getUrls({});
 
-// try persistent cookie
-const cookiePath = path.join(process.cwd(), '.cookie.json');
-touch.sync(cookiePath);
-const jar = new tough.CookieJar(new FileCookieStore(cookiePath));
-
-const req = axios.create({
-  timeout: 35e3,
-  headers: {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) ' +
-      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2652.0 Safari/537.36',
-    'Referer': 'https://wx2.qq.com/',
-  },
-  jar,
-  withCredentials: true,
-  xsrfCookieName: null,
-  xsrfHeaderName: null,
-  httpAgent: new http.Agent({ keepAlive: true }),
-  httpsAgent: new https.Agent({ keepAlive: true }),
-});
-
-axiosCookieJarSupport(req);
-
 const secretPath = path.join(process.cwd(), '.secret.json');
-const makeDeviceID = () => 'e' + Math.random().toFixed(15).toString().substring(2, 17);
 
 class WeixinBot extends EventEmitter {
   constructor() {
@@ -56,11 +34,11 @@ class WeixinBot extends EventEmitter {
   }
 
   qrcodeUrl(uuid) {
-  	return URLS.QRCODE_PATH + uuid;
+    return URLS.QRCODE_PATH + uuid;
   }
 
   qrcode(uuid) {
-  	return this.qrcodeUrl(uuid).replace('/qrcode/', '/l/');
+    return this.qrcodeUrl(uuid).replace('/qrcode/', '/l/');
   }
 
   async run() {
@@ -87,7 +65,7 @@ class WeixinBot extends EventEmitter {
     this.my = null;
     this.syncKey = null;
     this.formateSyncKey = '';
-    this.deviceid = makeDeviceID();
+    this.deviceid = utils.makeDeviceID();
 
     // member store
     this.Members = new Datastore();
@@ -96,6 +74,26 @@ class WeixinBot extends EventEmitter {
     this.GroupMembers = new Datastore();
     this.Brands = new Datastore(); // 公众帐号
     this.SPs = new Datastore(); // 特殊帐号
+
+
+    this.jar = new tough.CookieJar();
+    this.req = axios.create({
+      timeout: 35e3,
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) ' +
+          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2652.0 Safari/537.36',
+        'Referer': 'https://wx2.qq.com/',
+      },
+      jar: this.jar,
+      withCredentials: true,
+      xsrfCookieName: null,
+      xsrfHeaderName: null,
+      httpAgent: new http.Agent({ keepAlive: true }),
+      httpsAgent: new https.Agent({ keepAlive: true }),
+    });
+
+    axiosCookieJarSupport(this.req);
 
     // indexing
     this.Members.ensureIndex({ fieldName: 'UserName', unique: true });
@@ -136,12 +134,12 @@ class WeixinBot extends EventEmitter {
     while (true) {
       const loginCode = await this.checkLoginStep(tip);
       if (loginCode === 200)
-      	break;
+        break;
 
       if (loginCode === 201) {
-      	tip = 0;
+        tip = 0;
       } else {
-      	this.checkTimes += 1;
+        this.checkTimes += 1;
       }
 
       if (this.checkTimes > 10) {
@@ -207,7 +205,7 @@ class WeixinBot extends EventEmitter {
   async fetchUUID() {
     let result;
     try {
-      result = await req.get(URLS.API_jsLogin, {
+      result = await this.req.get(URLS.API_jsLogin, {
         params: {
           appid: 'wx782c26e4c19acffb',
           fun: 'new',
@@ -235,7 +233,7 @@ class WeixinBot extends EventEmitter {
     let result;
 
     try {
-      result = await req.get(URLS.API_login, {
+      result = await this.req.get(URLS.API_login, {
         params: {
           tip: tip,
           uuid: this.uuid,
@@ -283,7 +281,7 @@ class WeixinBot extends EventEmitter {
   async fetchTickets() {
     let result;
     try {
-      result = await req.get(this.redirectUri);
+      result = await this.req.get(this.redirectUri);
     } catch (e) {
       debug('fetch tickets network error', e);
       // network error, retry
@@ -293,22 +291,21 @@ class WeixinBot extends EventEmitter {
 
     const { data } = result;
 
-    if (!/<ret>0<\/ret>/.test(data)) {
-      throw new Error('Get skey failed, restart login');
+    let jData;
+    try {
+    	jData = await parseString(data, {explicitArray: false});
+    	if (+jData['Error']['ret'] !== 0) {
+    		throw new Error();
+    	}
+    } catch (e) {
+    	throw new Error('Get skey failed, restart login');
     }
 
-    // const retM = data.match(/<ret>(.*)<\/ret>/);
-    // const scriptM = data.match(/<script>(.*)<\/script>/);
-    const skeyM = data.match(/<skey>(.*)<\/skey>/);
-    const wxsidM = data.match(/<wxsid>(.*)<\/wxsid>/);
-    const wxuinM = data.match(/<wxuin>(.*)<\/wxuin>/);
-    const passTicketM = data.match(/<pass_ticket>(.*)<\/pass_ticket>/);
-    // const redirectUrl = data.match(/<redirect_url>(.*)<\/redirect_url>/);
+    this.skey = jData['error']['skey'];
+    this.sid = jData['error']['wxsid'];
+    this.uin = jData['error']['wxuin'];
+    this.passTicket = jData['error']['pass_ticket'];
 
-    this.skey = skeyM && skeyM[1];
-    this.sid = wxsidM && wxsidM[1];
-    this.uin = wxuinM && wxuinM[1];
-    this.passTicket = passTicketM && passTicketM[1];
     debug(`
       获得 skey -> ${this.skey}
       获得 sid -> ${this.sid}
@@ -336,10 +333,8 @@ class WeixinBot extends EventEmitter {
   async webwxinit() {
     let result;
     try {
-      result = await req.post(
-        URLS.API_webwxinit,
-        { BaseRequest: this.baseRequest },
-        {
+      result = await this.req.post(
+        URLS.API_webwxinit, { BaseRequest: this.baseRequest }, {
           params: {
             pass_ticket: this.passTicket,
             skey: this.skey,
@@ -367,14 +362,12 @@ class WeixinBot extends EventEmitter {
   async webwxsync() {
     let result;
     try {
-      result = await req.post(
-        URLS.API_webwxsync,
-        {
+      result = await this.req.post(
+        URLS.API_webwxsync, {
           BaseRequest: this.baseRequest,
           SyncKey: this.syncKey,
           rr: ~new Date,
-        },
-        {
+        }, {
           params: {
             sid: this.sid,
             skey: this.skey,
@@ -401,7 +394,7 @@ class WeixinBot extends EventEmitter {
     for (let host of PUSH_HOST_LIST) {
       let result;
       try {
-        result = await req.get('https://' + host + '/cgi-bin/mmwebwx-bin/synccheck', {
+        result = await this.req.get('https://' + host + '/cgi-bin/mmwebwx-bin/synccheck', {
           params: {
             r: +new Date,
             skey: this.skey,
@@ -428,9 +421,8 @@ class WeixinBot extends EventEmitter {
   async syncCheck() {
     let result;
     try {
-      result = await req.get(
-        URLS.API_synccheck,
-        {
+      result = await this.req.get(
+        URLS.API_synccheck, {
           params: {
             r: +new Date(),
             skey: this.skey,
@@ -472,16 +464,14 @@ class WeixinBot extends EventEmitter {
   async notifyMobile() {
     let result;
     try {
-      result = await req.post(
-        URLS.API_webwxstatusnotify,
-        {
+      result = await this.req.post(
+        URLS.API_webwxstatusnotify, {
           BaseRequest: this.baseRequest,
           Code: CODES.StatusNotifyCode_INITED,
           FromUserName: this.my.UserName,
           ToUserName: this.my.UserName,
           ClientMsgId: +new Date,
-        },
-        {
+        }, {
           params: {
             lang: 'zh_CN',
             pass_ticket: this.passTicket,
@@ -505,10 +495,8 @@ class WeixinBot extends EventEmitter {
   async fetchContact() {
     let result;
     try {
-      result = await req.post(
-        URLS.API_webwxgetcontact,
-        {},
-        {
+      result = await this.req.post(
+        URLS.API_webwxgetcontact, {}, {
           params: {
             pass_ticket: this.passTicket,
             skey: this.skey,
@@ -576,14 +564,12 @@ class WeixinBot extends EventEmitter {
     const list = groupIds.map((id) => ({ UserName: id, EncryChatRoomId: '' }));
     let result;
     try {
-      result = await req.post(
-        URLS.API_webwxbatchgetcontact,
-        {
+      result = await this.req.post(
+        URLS.API_webwxbatchgetcontact, {
           BaseRequest: this.baseRequest,
           Count: list.length,
           List: list,
-        },
-        {
+        }, {
           params: {
             type: 'ex',
             r: +new Date,
@@ -747,24 +733,21 @@ class WeixinBot extends EventEmitter {
   sendText(to, content, callback) {
     const clientMsgId = (+new Date + Math.random().toFixed(3)).replace('.', '');
 
-    req.post(URLS.API_webwxsendmsg,
-      {
-        BaseRequest: this.baseRequest,
-        Msg: {
-          Type: CODES.MSGTYPE_TEXT,
-          Content: content,
-          FromUserName: this.my.UserName,
-          ToUserName: to,
-          LocalID: clientMsgId,
-          ClientMsgId: clientMsgId,
-        },
+    this.req.post(URLS.API_webwxsendmsg, {
+      BaseRequest: this.baseRequest,
+      Msg: {
+        Type: CODES.MSGTYPE_TEXT,
+        Content: content,
+        FromUserName: this.my.UserName,
+        ToUserName: to,
+        LocalID: clientMsgId,
+        ClientMsgId: clientMsgId,
       },
-      {
-        params: {
-          pass_ticket: this.passTicket,
-        },
-      }
-    ).then((result) => {
+    }, {
+      params: {
+        pass_ticket: this.passTicket,
+      },
+    }).then((result) => {
       const { data } = result;
       callback = callback || (() => (null));
       if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
